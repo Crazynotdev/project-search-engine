@@ -13,7 +13,7 @@ async function main() {
   await waitForMongooseInstancesConnected([INDEXER_DB, CRAWLER_BD]);
   console.log("Mongoose instances connected\n");
 
-  const exists = await WebSiteModel.findOne({ rank: { $exists: false } });
+  const exists = true //await WebSiteModel.findOne({ rank: { $exists: false } });
   if (exists) {
     console.log("existing not ranked pages\nStarting ranking algorithm")
     // initalisation du page ranking
