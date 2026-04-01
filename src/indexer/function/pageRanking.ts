@@ -6,10 +6,10 @@
 // type Page = { rank?: number | null, urls: string[], link: string }
 
 // /**
-//  * 
+//  *
 //  * @param iterations - nombre d'iteration pour stabiliser le rang
 //  * @param d - Damping factor
-//  * 
+//  *
 //  * @description Le PageRank[a] ou PR est l'algorithme d'analyse des liens concourant au système de classement des pages Web utilisé par le moteur de recherche Google. Il mesure quantitativement la popularité d'une page web. Le PageRank n'est qu'un indicateur parmi d'autres dans l'algorithme qui permet de classer les pages du Web dans les résultats de recherche de Google. Ce système a été inventé par Larry Page, cofondateur de Google[1]. Ce mot est une marque déposée. <source: WIKIPEDIA>
 //  */
 // export async function globalWebSiteRanking(iterations: number, d: number = 0.85) {
@@ -95,7 +95,6 @@
 
 //     const safeScoring = new Map(chunkPages.map(p => [p.link, { ...p, rank: p.rank ?? 1 / pages.length }]));
 
-
 //     for (let iter = 0; iter < iterations; iter++) {
 //         const newRank = new Map<string, number>();
 //         for (const page of chunkPages) {
@@ -125,136 +124,153 @@
 
 // }
 
-
-import { WebSiteModel } from "../../shared/models/websites.js";
+import type { Types } from "mongoose";
+import { LinkModel } from "../../shared/models/links.js";
+import { PageModel } from "../../shared/models/page.js";
 import { chunkArray } from "./chunkArray.js";
 import fs from "fs";
 
-type Page = { rank?: number | null, urls: string[], link: string }
+type Page = { rank: number | null; urls: string[]; link: string };
 
 const CHECKPOINT_FILE = "./pagerank_checkpoint.json";
 
-export async function globalWebSiteRanking(iterations: number, d: number = 0.85) {
+export async function globalWebSiteRanking(
+  iterations: number,
+  d: number = 0.85,
+) {
+  const pages = await PageModel.find({}, { _id: 1, rank: 1, url: 1 });
+  const pagesIds = pages.map((p) => p._id);
+  const links = await LinkModel.find({
+    source_page_id: { $in: pagesIds },
+    target_page_id: { $in: pagesIds },
+  });
 
-    const pages = await WebSiteModel.find({}, { _id: 0, rank: 1, link: 1, urls: 1 });
+  console.log(`Loaded ${pages.length} pages`);
 
-    console.log(`Loaded ${pages.length} pages`);
+  // 🧠 Initialisation
+  let pageMap = new Map<string, Page>(
+    pages.map((p) => [
+      p._id.toString(),
+      { link: p.url, rank: p.rank ?? 1 / pages.length, urls: [] },
+    ]),
+  );
 
-    // 🧠 Initialisation
-    let pageMap = new Map<string, Page>(
-        pages.map(p => [p.link, { link: p.link, urls: p.urls, rank: p.rank ?? 1 / pages.length }])
+  for (const link of links) {
+    const exitsSource = pageMap.has(link.source_page_id.toString());
+    const exitsTarget = pageMap.has(link.target_page_id.toString());
+    if (exitsSource && exitsTarget) {
+      pageMap
+        .get(link.source_page_id.toString())!
+        .urls.push(link.target_page_id.toString());
+    }
+  }
+
+  const incomingMap = new Map<string, string[]>();
+
+  for (const [id, page] of Array.from(pageMap.entries())) {
+    for (const url of page.urls) {
+      if (!pageMap.has(url)) continue;
+      if (!incomingMap.has(url)) incomingMap.set(url, []);
+      incomingMap.get(url)!.push(id);
+    }
+  }
+
+  console.log("Incoming map built");
+
+  // 🔁 Reprise si checkpoint existe
+  let startIter = 0;
+
+  // if (fs.existsSync(CHECKPOINT_FILE)) {
+  //   const data = JSON.parse(fs.readFileSync(CHECKPOINT_FILE, "utf-8"));
+  //   startIter = data.iteration;
+
+  //   console.log(`Resuming from iteration ${startIter}`);
+
+  //   for (const [link, rank] of Object.entries(data.ranks)) {
+  //     if (pageMap.has(link)) {
+  //       pageMap.get(link)!.rank = rank as number;
+  //     }
+  //   }
+  // }
+
+  // 🔪 découpage en chunks
+  const chunks = chunkArray(
+    Array.from(pageMap.entries()).map((p) => ({ _id: p[0], ...p[1] })),
+    50,
+  );
+
+  for (let iter = startIter; iter < iterations; iter++) {
+    console.log(`\n=== ITERATION ${iter + 1}/${iterations} ===`);
+
+    const newRank = new Map<string, number>();
+
+    // 🚀 parallélisation correcte
+    await Promise.all(
+      chunks.map((chunk) =>
+        computeChunk(chunk, pageMap, incomingMap, newRank, d, pages.length),
+      ),
     );
 
-
-    // 🔥 Build incoming links map (IMPORTANT)
-    const incomingMap = new Map<string, string[]>();
-
-    for (const page of pages) {
-        for (const url of page.urls) {
-            if (!pageMap.has(url)) continue;
-            if (!incomingMap.has(url)) incomingMap.set(url, []);
-            incomingMap.get(url)!.push(page.link);
-        }
+    // 🔄 sync global (IMPORTANT)
+    for (const [link, rank] of newRank.entries()) {
+      pageMap.get(link)!.rank = rank;
     }
 
-    console.log("Incoming map built");
+    // 💾 checkpoint
+    // saveCheckpoint(iter + 1, pageMap);
+  }
 
-    // 🔁 Reprise si checkpoint existe
-    let startIter = 0;
+  // 💾 sauvegarde finale en DB
+  await PageModel.bulkWrite(
+    pages.map((p) => ({
+      updateOne: {
+        filter: { _id: p._id },
+        update: { $set: { rank: pageMap.get(p._id.toString())!.rank! } },
+        upsert: false,
+      },
+    })),
+  );
 
-    if (fs.existsSync(CHECKPOINT_FILE)) {
-        const data = JSON.parse(fs.readFileSync(CHECKPOINT_FILE, "utf-8"));
-        startIter = data.iteration;
-
-        console.log(`Resuming from iteration ${startIter}`);
-
-        for (const [link, rank] of Object.entries(data.ranks)) {
-            if (pageMap.has(link)) {
-                pageMap.get(link)!.rank = rank as number;
-            }
-        }
-    }
-
-    // 🔪 découpage en chunks
-    const chunks = chunkArray(pages, 50);
-
-    for (let iter = startIter; iter < iterations; iter++) {
-
-        console.log(`\n=== ITERATION ${iter + 1}/${iterations} ===`);
-
-        const newRank = new Map<string, number>();
-
-        // 🚀 parallélisation correcte
-        await Promise.all(
-            chunks.map(chunk =>
-                computeChunk(chunk, pageMap, incomingMap, newRank, d, pages.length)
-            )
-        );
-
-        // 🔄 sync global (IMPORTANT)
-        for (const [link, rank] of newRank.entries()) {
-            pageMap.get(link)!.rank = rank;
-        }
-
-        // 💾 checkpoint
-        saveCheckpoint(iter + 1, pageMap);
-
-        console.log(`Iteration ${iter + 1} done`);
-    }
-
-    // 💾 sauvegarde finale en DB
-    await WebSiteModel.bulkWrite(
-        pages.map(p => ({
-            updateOne: {
-                filter: { link: p.link },
-                update: { $set: { rank: pageMap.get(p.link)!.rank! } },
-                upsert: false
-            }
-        }))
-    );
-
-    console.log("Ranking completed !");
+  // fs.rmSync(CHECKPOINT_FILE);
+  console.log("Ranking completed !");
 }
 
 async function computeChunk(
-    chunk: Page[],
-    pageMap: Map<string, Page>,
-    incomingMap: Map<string, string[]>,
-    newRank: Map<string, number>,
-    d: number,
-    totalPages: number
+  chunk: (Page & { _id: string })[],
+  pageMap: Map<string, Page>,
+  incomingMap: Map<string, string[]>,
+  newRank: Map<string, number>,
+  d: number,
+  totalPages: number,
 ) {
+  for (const page of chunk) {
+    let sum = 0;
 
-    for (const page of chunk) {
+    const incomingLinks = incomingMap.get(page._id) || [];
 
-        let sum = 0;
-
-        const incomingLinks = incomingMap.get(page.link) || [];
-
-        for (const incoming of incomingLinks) {
-            const p = pageMap.get(incoming)!;
-            if (p.urls.length > 0) {
-                sum += p.rank! / p.urls.length;
-            }
-        }
-
-        const rank = (1 - d) / totalPages + d * sum;
-
-        newRank.set(page.link, rank);
+    for (const incoming of incomingLinks) {
+      const p = pageMap.get(incoming)!;
+      if (p.urls.length > 0) {
+        sum += p.rank! / p.urls.length;
+      }
     }
+
+    const rank = (1 - d) / totalPages + d * sum;
+
+    newRank.set(page._id, rank);
+  }
 }
 
-function saveCheckpoint(iteration: number, pageMap: Map<string, Page>) {
+function saveCheckpoint(iteration: number, pageMap: Map<Types.ObjectId, Page>) {
+  const ranks: Record<string, number> = {};
 
-    const ranks: Record<string, number> = {};
+  for (const [link, page] of pageMap.entries()) {
+    ranks[String(link)] = page.rank!;
+  }
 
-    for (const [link, page] of pageMap.entries()) {
-        ranks[link] = page.rank!;
-    }
-
-    fs.writeFileSync(
-        CHECKPOINT_FILE,
-        JSON.stringify({ iteration, ranks }),
-        "utf-8"
-    );
+  fs.writeFileSync(
+    CHECKPOINT_FILE,
+    JSON.stringify({ iteration, ranks }),
+    "utf-8",
+  );
 }

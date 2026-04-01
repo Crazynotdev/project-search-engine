@@ -1,13 +1,9 @@
 import axios from "axios";
 import { isAllowedToScrap, tryFiltreUnallowed } from "./CrawablePathChecker.js";
 import * as Cheerio from "cheerio";
+import { extractSmartText } from "./extracSmartText.js";
 
-export async function fetcher(url: string): Promise<{
-  title: string;
-  urls: string[];
-  content: string;
-  allowedToScrap: string[];
-}> {
+export async function fetcher(url: string) {
   const isAllowed = await isAllowedToScrap(url);
   if (!isAllowed) throw new Error("not allowed to scrap");
 
@@ -20,8 +16,7 @@ export async function fetcher(url: string): Promise<{
   });
 
   const $ = Cheerio.load(htmlContent.data);
-  const title = $("head > title").text() as string;
-  const content = $("body").remove("script style noscript").text() as string;
+  const extractResult = extractSmartText($, htmlContent.data);
   const urls: string[] = [];
   $("a").each((i, el) => {
     const href = $(el).attr("href");
@@ -31,12 +26,21 @@ export async function fetcher(url: string): Promise<{
     }
   });
 
-  const filtredUrl = urls.filter((u) => u.startsWith("http"));
+  const filtredUrl = urls.filter(
+    (u) => u.startsWith("http") && !u.endsWith(".pdf"),
+  );
 
   return {
-    title,
-    content,
+    title: extractResult.title,
+    content:
+      extractResult.main_content
+        ?.toLowerCase()
+        .replace(/[^\w\s]/g, "")
+        .replace(/\s+/g, " ") ?? null,
+    meta_description: extractResult.meta_description,
+    word_Count: extractResult.word_count,
     urls: filtredUrl,
+    domain: new URL(url).origin,
     allowedToScrap: tryFiltreUnallowed(url, filtredUrl),
   };
 }
