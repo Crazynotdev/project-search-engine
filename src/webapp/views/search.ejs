@@ -139,6 +139,88 @@
       color: #202124;
       font-weight: bold;
     }
+    @media (max-width: 768px) {
+      .header {
+        flex-direction: column;
+        gap: 10px;
+        padding: 10px;
+      }
+      .logo {
+        font-size: 24px;
+        margin-right: 0;
+      }
+      .search-box {
+        max-width: 100%;
+        flex: 1;
+      }
+      .tools {
+        margin-left: 0;
+        justify-content: center;
+        width: 100%;
+        gap: 10px;
+      }
+      .tools a {
+        font-size: 12px;
+      }
+      .container {
+        max-width: 90vw;
+        margin: 20px auto;
+      }
+      .result h3 {
+        font-size: 18px;
+      }
+      .result-description {
+        font-size: 13px;
+      }
+      .result-url {
+        font-size: 12px;
+      }
+    }
+    @media (max-width: 480px) {
+      .header {
+        padding: 8px;
+      }
+      .logo {
+        font-size: 20px;
+      }
+      .search-box {
+        padding: 6px 12px;
+      }
+      .search-box input {
+        font-size: 14px;
+      }
+      .tools a {
+        font-size: 11px;
+      }
+      .container {
+        max-width: 100%;
+        margin: 15px 10px;
+        padding: 0 10px;
+      }
+      .result-stats {
+        font-size: 12px;
+      }
+      .result h3 {
+        font-size: 16px;
+      }
+      .result-description {
+        font-size: 12px;
+        line-height: 1.5;
+      }
+      .result-url {
+        font-size: 11px;
+      }
+      .result-score {
+        font-size: 11px;
+      }
+      .pagination {
+        gap: 5px;
+      }
+      .pagination a, .pagination span {
+        padding: 6px 10px;
+        font-size: 12px;
+      }
+    }
   </style>
 </head>
 <body>
