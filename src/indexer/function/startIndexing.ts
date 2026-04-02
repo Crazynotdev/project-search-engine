@@ -32,7 +32,7 @@ export async function startIndexing() {
     // On ajoute des donnees au ajour le pageMap
     pagesMap.get(content.page_id.toString())!.word_count = content.word_count;
 
-   /* const wordsSet = new Set(
+    const wordsSet = new Set(
       removeStopwords(
         content.clean_text?.split(" ").filter((p) => p.length !== 0) ?? [],
         [...fra, ...eng],
@@ -47,19 +47,7 @@ export async function startIndexing() {
       const prev = pageMap.get(content.page_id.toString()) ?? 0;
       pageMap.set(content.page_id.toString(), prev + 1);
     }
-  }*/
-        const words = removeStopwords(
-      content.clean_text?.split(" ").filter((p) => p.length !== 0) ?? [],
-      [...fra, ...eng],
-    );
-    for (const w of words) {
-      if (!wordsMap.has(w)) {
-        wordsMap.set(w, new Map());
-      }
-      const pageMap = wordsMap.get(w)!;
-      const prev = pageMap.get(content.page_id.toString()) ?? 0;
-      pageMap.set(content.page_id.toString(), prev + 1);
-    }
+  }
 
   console.log("Starting Indexing");
   const chunkWords = chunkArray(Array.from(wordsMap.keys()), 100);
